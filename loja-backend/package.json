@@ -1,0 +1,29 @@
+{
+  "name": "loja-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.0",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.2",
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^6.6.0",
+    "helmet": "^8.1.0",
+    "mercadopago": "^2.12.0"
+  },
+  "engines": {
+    "node": "20"
+  }
+}

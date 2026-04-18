@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Dados públicos da loja (catalogo, pedidos, cupons etc).
+    // Leitura publica; escrita apenas autenticada.
+    match /artifacts/{appId}/public/data/{document=**} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Dados privados por usuario autenticado.
+    match /artifacts/{appId}/users/{userId}/{document=**} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Bloqueia qualquer outro caminho nao previsto.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
