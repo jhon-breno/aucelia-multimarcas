@@ -24,18 +24,18 @@ jobs:
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
       - name: Validate Firebase service account secret
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_LOJA_MULTIMARCAS || secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS || secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           if [[ -z "${FIREBASE_SERVICE_ACCOUNT:-}" ]]; then
-            echo "::error::Defina um dos secrets: FIREBASE_SERVICE_ACCOUNT_LOJA_MULTIMARCAS ou FIREBASE_SERVICE_ACCOUNT."
+            echo "::error::Defina um dos secrets: FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS ou FIREBASE_SERVICE_ACCOUNT."
             exit 1
           fi
 
-          node -e "const raw=process.env.FIREBASE_SERVICE_ACCOUNT;let json;try{json=JSON.parse(raw)}catch{console.error('::error::O secret FIREBASE_SERVICE_ACCOUNT_LOJA_MULTIMARCAS não é JSON válido de Service Account.');process.exit(1)};const required=['type','project_id','private_key','client_email'];const missing=required.filter((k)=>!json[k]);if(missing.length){console.error('::error::JSON da Service Account incompleto. Campos ausentes: '+missing.join(', '));process.exit(1)};if(json.type!=='service_account'){console.error('::error::O JSON informado não é do tipo service_account.');process.exit(1)}"
+          node -e "const raw=process.env.FIREBASE_SERVICE_ACCOUNT;let json;try{json=JSON.parse(raw)}catch{console.error('::error::O secret FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS não é JSON válido de Service Account.');process.exit(1)};const required=['type','project_id','private_key','client_email'];const missing=required.filter((k)=>!json[k]);if(missing.length){console.error('::error::JSON da Service Account incompleto. Campos ausentes: '+missing.join(', '));process.exit(1)};if(json.type!=='service_account'){console.error('::error::O JSON informado não é do tipo service_account.');process.exit(1)}"
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_LOJA_MULTIMARCAS || secrets.FIREBASE_SERVICE_ACCOUNT }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS || secrets.FIREBASE_SERVICE_ACCOUNT }}
           channelId: live
-          projectId: loja-multimarcas
+          projectId: aucelia-multimarcas
