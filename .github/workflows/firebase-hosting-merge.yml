@@ -24,11 +24,11 @@ jobs:
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
       - name: Validate Firebase service account secret
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS || secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS_D4E8B || secrets.FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS || secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           if [[ -z "${FIREBASE_SERVICE_ACCOUNT:-}" ]]; then
-            echo "::error::Defina um dos secrets: FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS ou FIREBASE_SERVICE_ACCOUNT."
+            echo "::error::Defina um dos secrets: FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS_D4E8B, FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS ou FIREBASE_SERVICE_ACCOUNT."
             exit 1
           fi
 
@@ -36,6 +36,6 @@ jobs:
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS || secrets.FIREBASE_SERVICE_ACCOUNT }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS_D4E8B || secrets.FIREBASE_SERVICE_ACCOUNT_AUCELIA_MULTIMARCAS || secrets.FIREBASE_SERVICE_ACCOUNT }}
           channelId: live
-          projectId: aucelia-multimarcas
+          projectId: aucelia-multimarcas-d4e8b
