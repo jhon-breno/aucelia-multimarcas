@@ -227,9 +227,15 @@ const clearPaymentReturnParamsFromUrl = () => {
   window.history.replaceState({}, document.title, target);
 };
 
-const ADMIN_EMAIL = "admin@auceliamultimarcas.com.br";
-const ADMIN_PASSWORD = "Joao@2405";
 const ADMIN_SESSION_KEY = "auceliamultimarcas_admin_auth_v1";
+const ADMIN_ALLOWED_EMAILS = String(import.meta.env.VITE_ADMIN_EMAILS || "")
+  .split(",")
+  .map((value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase(),
+  )
+  .filter(Boolean);
 
 // Configuração apontando para .env (Ambiente Local/Vite)
 
@@ -1508,11 +1514,6 @@ export default function App() {
 
   const isAdminRoute = currentRoute === "admin";
 
-  useEffect(() => {
-    const savedSession = sessionStorage.getItem(ADMIN_SESSION_KEY);
-    setIsAdminAuthenticated(savedSession === "ok");
-  }, []);
-
   // --- Atualização Dinâmica do Título e Favicon ---
   useEffect(() => {
     const storeName = storeSettings.storeName || "NovaLoja";
@@ -1537,9 +1538,24 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
+        const authenticatedEmail = String(currentUser.email || "")
+          .trim()
+          .toLowerCase();
+        const isAllowedAdmin =
+          !currentUser.isAnonymous &&
+          ADMIN_ALLOWED_EMAILS.includes(authenticatedEmail);
+
         setUser(currentUser);
+        setIsAdminAuthenticated(isAllowedAdmin);
+        if (isAllowedAdmin) {
+          sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
+        } else {
+          sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        }
         setLoading(false);
       } else {
+        sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        setIsAdminAuthenticated(false);
         try {
           if (
             typeof __initial_auth_token !== "undefined" &&
@@ -1784,25 +1800,51 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleAdminLogin = (email, password) => {
-    const validEmail =
-      String(email || "")
-        .trim()
-        .toLowerCase() === ADMIN_EMAIL;
-    const validPassword = String(password || "") === ADMIN_PASSWORD;
-
-    if (!validEmail || !validPassword) {
-      showToast("Credenciais de administrador inválidas.", "error");
+  const handleAdminLogin = async (email, password) => {
+    if (ADMIN_ALLOWED_EMAILS.length === 0) {
+      showToast(
+        "Admin não configurado. Defina VITE_ADMIN_EMAILS no .env do frontend.",
+        "error",
+      );
       return false;
     }
 
-    sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
-    setIsAdminAuthenticated(true);
-    showToast("Acesso administrativo liberado.");
-    return true;
+    const normalizedEmail = String(email || "")
+      .trim()
+      .toLowerCase();
+
+    try {
+      const credential = await signInWithEmailAndPassword(
+        auth,
+        normalizedEmail,
+        String(password || ""),
+      );
+
+      const authenticatedEmail = String(credential?.user?.email || "")
+        .trim()
+        .toLowerCase();
+
+      if (!ADMIN_ALLOWED_EMAILS.includes(authenticatedEmail)) {
+        await signOut(auth);
+        showToast(
+          "Seu usuário não está autorizado para o painel admin.",
+          "error",
+        );
+        return false;
+      }
+
+      sessionStorage.setItem(ADMIN_SESSION_KEY, "ok");
+      setIsAdminAuthenticated(true);
+      showToast("Acesso administrativo liberado.");
+      return true;
+    } catch {
+      showToast("Credenciais de administrador inválidas.", "error");
+      return false;
+    }
   };
 
-  const handleAdminLogout = () => {
+  const handleAdminLogout = async () => {
+    await signOut(auth);
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
     setIsAdminAuthenticated(false);
     showToast("Sessão administrativa encerrada.");
