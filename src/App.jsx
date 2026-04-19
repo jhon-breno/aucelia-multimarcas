@@ -3858,7 +3858,8 @@ function StoreFront({
           <div className="mt-8 pt-5 border-t border-slate-800 text-xs text-slate-500 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <span>
               © {new Date().getFullYear()}{" "}
-              {storeSettings.storeName || "JN Store"}
+              {storeSettings.storeName || "Aucelia Multimarcas"}. Todos os
+              direitos reservados.
             </span>
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 border border-emerald-400/30 text-[11px] font-black text-emerald-200 uppercase tracking-wider">
@@ -16758,7 +16759,7 @@ function AdminSettings({ showToast, storeSettings }) {
                   }));
                 }}
                 placeholder={
-                  "Digite uma mensagem por linha\nFrete grátis acima de R$ 299\nCupom JNPRIMEIRA para novos clientes"
+                  "Digite uma mensagem por linha\nFrete grátis acima de R$ 299\nCupom PRIMEIRACOMPRA para novos clientes"
                 }
                 className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
               />
