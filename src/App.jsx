@@ -64,6 +64,8 @@ import {
   signInWithCustomToken,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut,
 } from "firebase/auth";
 import {
@@ -7234,12 +7236,148 @@ function AuthModal({ close, showToast }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   // Novos campos para cadastro
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  const upsertCustomerRecords = useCallback(
+    async ({ firebaseUser, profileData, fallbackEmail = "" }) => {
+      const normalizedEmail = String(
+        profileData?.email || firebaseUser?.email || fallbackEmail || "",
+      )
+        .trim()
+        .toLowerCase();
+      const normalizedPhone = maskPhone(
+        String(profileData?.phone || firebaseUser?.phoneNumber || ""),
+      );
+      const normalizedFirstName = String(profileData?.firstName || "").trim();
+      const normalizedLastName = String(profileData?.lastName || "").trim();
+
+      await setDoc(
+        doc(
+          db,
+          "artifacts",
+          appId,
+          "users",
+          firebaseUser.uid,
+          "profile",
+          "info",
+        ),
+        {
+          firstName: normalizedFirstName,
+          lastName: normalizedLastName,
+          phone: normalizedPhone,
+          email: normalizedEmail,
+          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      await setDoc(
+        doc(
+          db,
+          "artifacts",
+          appId,
+          "public",
+          "data",
+          "customers",
+          firebaseUser.uid,
+        ),
+        {
+          name:
+            `${normalizedFirstName} ${normalizedLastName}`.trim() ||
+            String(firebaseUser.displayName || normalizedEmail)
+              .trim()
+              .slice(0, 120),
+          phone: normalizedPhone,
+          email: normalizedEmail,
+          document: "",
+          userId: firebaseUser.uid,
+          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    },
+    [],
+  );
+
+  const parseDisplayName = useCallback((displayName) => {
+    const normalized = String(displayName || "")
+      .trim()
+      .replace(/\s+/g, " ");
+    if (!normalized) {
+      return { firstName: "Cliente", lastName: "" };
+    }
+
+    const [parsedFirstName, ...rest] = normalized.split(" ");
+    return {
+      firstName: parsedFirstName || "Cliente",
+      lastName: rest.join(" "),
+    };
+  }, []);
+
+  const handleGoogleAuth = async () => {
+    setIsGoogleLoading(true);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+
+      const userCredential = await signInWithPopup(auth, provider);
+      const googleUser = userCredential.user;
+      const profileSnap = await getDoc(
+        doc(db, "artifacts", appId, "users", googleUser.uid, "profile", "info"),
+      );
+
+      const existingProfile = profileSnap.exists() ? profileSnap.data() : {};
+      const displayNameParts = parseDisplayName(googleUser.displayName);
+
+      await upsertCustomerRecords({
+        firebaseUser: googleUser,
+        profileData: {
+          firstName: String(
+            existingProfile?.firstName || displayNameParts.firstName,
+          ).trim(),
+          lastName: String(
+            existingProfile?.lastName || displayNameParts.lastName,
+          ).trim(),
+          phone: String(
+            existingProfile?.phone || googleUser.phoneNumber || "",
+          ).trim(),
+          email: String(
+            existingProfile?.email || googleUser.email || "",
+          ).trim(),
+        },
+      });
+
+      showToast("Login com Google realizado com sucesso!");
+      close();
+    } catch (error) {
+      let msg = error.message;
+      if (error.code === "auth/popup-closed-by-user") {
+        msg = "Login com Google cancelado.";
+      }
+      if (error.code === "auth/popup-blocked") {
+        msg =
+          "O navegador bloqueou o popup do Google. Libere popups e tente novamente.";
+      }
+      if (error.code === "auth/account-exists-with-different-credential") {
+        msg = "Este e-mail já está cadastrado com outro método de login.";
+      }
+      if (error.code === "auth/operation-not-allowed") {
+        msg = "O login com Google não está habilitado no Firebase.";
+      }
+      showToast(msg, "error");
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -7252,44 +7390,31 @@ function AuthModal({ close, showToast }) {
         );
         const loggedInUser = userCredential.user;
 
-        // Auto-migração: garante que clientes antigos aparecem no PDV
         try {
-          const customerDocRef = doc(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            "customers",
-            loggedInUser.uid,
+          const profileSnap = await getDoc(
+            doc(
+              db,
+              "artifacts",
+              appId,
+              "users",
+              loggedInUser.uid,
+              "profile",
+              "info",
+            ),
           );
-          const customerSnap = await getDoc(customerDocRef);
-          if (!customerSnap.exists()) {
-            const profileSnap = await getDoc(
-              doc(
-                db,
-                "artifacts",
-                appId,
-                "users",
-                loggedInUser.uid,
-                "profile",
-                "info",
-              ),
-            );
-            if (profileSnap.exists()) {
-              const pData = profileSnap.data();
-              await setDoc(customerDocRef, {
-                name: `${pData.firstName} ${pData.lastName}`.trim(),
-                phone: pData.phone || "",
-                email: pData.email || email,
-                document: "",
-                userId: loggedInUser.uid,
-                createdAt: serverTimestamp(),
-              });
-            }
-          }
-        } catch (e) {
-          console.error("Falha na auto-migração de cliente", e);
+          const pData = profileSnap.exists() ? profileSnap.data() : {};
+          await upsertCustomerRecords({
+            firebaseUser: loggedInUser,
+            profileData: {
+              firstName: String(pData?.firstName || "").trim(),
+              lastName: String(pData?.lastName || "").trim(),
+              phone: String(pData?.phone || "").trim(),
+              email: String(pData?.email || email || "").trim(),
+            },
+            fallbackEmail: email,
+          });
+        } catch (migrationError) {
+          console.error("Falha na auto-migração de cliente", migrationError);
         }
 
         showToast("Login realizado com sucesso!");
@@ -7315,37 +7440,15 @@ function AuthModal({ close, showToast }) {
         const newUser = userCredential.user;
 
         // Salvar dados adicionais no banco de dados (Firestore) - Privado
-        await setDoc(
-          doc(db, "artifacts", appId, "users", newUser.uid, "profile", "info"),
-          {
+        await upsertCustomerRecords({
+          firebaseUser: newUser,
+          profileData: {
             firstName,
             lastName,
             phone,
             email,
-            createdAt: serverTimestamp(),
           },
-        );
-
-        // Sincronizar com a base pública de clientes para o PDV (Usando o UID para evitar duplicatas)
-        await setDoc(
-          doc(
-            db,
-            "artifacts",
-            appId,
-            "public",
-            "data",
-            "customers",
-            newUser.uid,
-          ),
-          {
-            name: `${firstName} ${lastName}`.trim(),
-            phone: maskPhone(phone),
-            email: email,
-            document: "",
-            userId: newUser.uid,
-            createdAt: serverTimestamp(),
-          },
-        );
+        });
 
         showToast("Conta criada com sucesso!");
         close();
@@ -7379,6 +7482,53 @@ function AuthModal({ close, showToast }) {
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <button
+            type="button"
+            onClick={handleGoogleAuth}
+            disabled={isGoogleLoading}
+            className="w-full inline-flex items-center justify-center gap-3 border border-slate-300 hover:border-slate-400 bg-white text-slate-700 font-semibold py-3 rounded-xl transition disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M21.805 10.023H12.25V13.98H17.734C17.498 15.252 16.774 16.329 15.685 17.053V19.62H18.993C20.93 17.836 22.04 15.209 22.04 12.091C22.04 11.367 21.975 10.67 21.805 10.023Z"
+                fill="#4285F4"
+              />
+              <path
+                d="M12.25 22C14.99 22 17.287 21.092 18.993 19.62L15.685 17.053C14.777 17.66 13.615 18.024 12.25 18.024C9.602 18.024 7.357 16.235 6.553 13.827H3.141V16.472C4.838 19.841 8.321 22 12.25 22Z"
+                fill="#34A853"
+              />
+              <path
+                d="M6.553 13.827C6.348 13.22 6.23 12.573 6.23 11.908C6.23 11.244 6.348 10.597 6.553 9.989V7.345H3.141C2.443 8.736 2.04 10.298 2.04 11.908C2.04 13.519 2.443 15.081 3.141 16.472L6.553 13.827Z"
+                fill="#FBBC05"
+              />
+              <path
+                d="M12.25 5.793C13.74 5.793 15.068 6.304 16.106 7.306L19.058 4.354C17.283 2.743 14.99 1.817 12.25 1.817C8.321 1.817 4.838 3.976 3.141 7.345L6.553 9.989C7.357 7.581 9.602 5.793 12.25 5.793Z"
+                fill="#EA4335"
+              />
+            </svg>
+            {isGoogleLoading
+              ? "Conectando com Google..."
+              : isLogin
+                ? "Entrar com Google"
+                : "Cadastrar com Google"}
+          </button>
+
+          <div className="relative py-1">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase tracking-[0.18em] text-slate-400">
+              <span className="bg-white px-3">ou continue com e-mail</span>
+            </div>
+          </div>
+
           {isLogin ? (
             // Form de Login
             <>
