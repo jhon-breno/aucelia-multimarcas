@@ -106,16 +106,35 @@ const buildRequestOptions = (req) => ({
 });
 
 const extractGatewayError = (error) => {
-  const details = error?.cause || error?.response?.data || null;
-  const message =
-    details?.message ||
-    details?.error ||
+  const rawDetails = error?.cause || error?.response?.data || null;
+  const details = Array.isArray(rawDetails)
+    ? rawDetails
+    : rawDetails
+      ? [rawDetails]
+      : [];
+  const baseMessage =
+    rawDetails?.message ||
+    rawDetails?.error ||
     error?.message ||
     "Falha no provedor de pagamentos.";
 
+  const firstDetail = details[0] || {};
+  const firstCode = Number(firstDetail?.code);
+
+  // Erro comum do MP: conta sem chave PIX habilitada para renderizar QR.
+  if (firstCode === 13253) {
+    return {
+      message:
+        "Conta Mercado Pago sem chave PIX habilitada para gerar QR Code. Ative/cadastre uma chave PIX na conta do recebedor e tente novamente.",
+      details,
+      code: firstCode,
+    };
+  }
+
   return {
-    message,
+    message: baseMessage,
     details,
+    code: Number.isFinite(firstCode) ? firstCode : null,
   };
 };
 
@@ -303,6 +322,7 @@ app.post("/api/pix", ensureMercadoPagoConfigured, async (req, res) => {
     return res.status(502).json({
       error: "Erro ao gerar pagamento PIX no provedor.",
       providerMessage: gatewayError.message,
+      providerCode: gatewayError.code,
     });
   }
 });
