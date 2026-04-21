@@ -49,6 +49,8 @@ import {
   Maximize2,
   Share2,
   Star,
+  GripVertical,
+  ArrowUpDown,
 } from "lucide-react";
 
 // ATENÇÃO: Para o ambiente local, instale e importe o SDK do Mercado Pago aqui:
@@ -1430,6 +1432,77 @@ function ConfirmModal({
   );
 }
 
+function AppLoadingOverlay({ isAdminMode, logo, storeName }) {
+  const STATIC_LOADING_LOGO_PATH = "/logo-loading.png";
+  const safeStoreName = String(storeName || "Aucélia Multimarcas").trim();
+  const title = isAdminMode
+    ? "Carregando dados do painel"
+    : "Preparando sua vitrine";
+  const loadingMessages = isAdminMode
+    ? [
+        "Estamos carregando os dados do admin para você acompanhar tudo com segurança.",
+        "Organizando pedidos, clientes e métricas para liberar seu painel.",
+        "Quase pronto. Seus dados já serão exibidos.",
+      ]
+    : [
+        "Estamos preparando tudo para melhorar sua experiência.",
+        "Aguarde um momento que já seus produtos serão exibidos.",
+        "Aplicando os últimos ajustes da vitrine para você comprar com mais rapidez.",
+      ];
+  const [messageIndex, setMessageIndex] = useState(0);
+  const [canRenderLogo, setCanRenderLogo] = useState(true);
+
+  useEffect(() => {
+    setMessageIndex(0);
+    const intervalId = window.setInterval(() => {
+      setMessageIndex((prev) => (prev + 1) % loadingMessages.length);
+    }, 2200);
+
+    return () => window.clearInterval(intervalId);
+  }, [loadingMessages.length]);
+
+  useEffect(() => {
+    setCanRenderLogo(true);
+  }, [logo, isAdminMode]);
+
+  const logoSource = String(logo || "").trim() || STATIC_LOADING_LOGO_PATH;
+  const message = loadingMessages[messageIndex] || loadingMessages[0];
+
+  return (
+    <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+      <div className="w-full max-w-md rounded-3xl border border-white/25 bg-white/90 shadow-2xl px-7 py-8 text-center">
+        <div className="mx-auto mb-5 h-24 w-24 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 p-1 shadow-lg shadow-indigo-500/30 animate-pulse">
+          <div className="h-full w-full rounded-full bg-white flex items-center justify-center overflow-hidden">
+            {canRenderLogo ? (
+              <img
+                src={normalizeExternalImageUrl(logoSource)}
+                alt={safeStoreName}
+                className="h-16 w-16 object-contain animate-bounce"
+                onError={() => setCanRenderLogo(false)}
+              />
+            ) : (
+              <Store size={36} className="text-indigo-600 animate-bounce" />
+            )}
+          </div>
+        </div>
+
+        <h3 className="text-xl font-black text-slate-800">{title}</h3>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600">{message}</p>
+
+        <div className="mt-5 flex items-center justify-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:-0.2s]"></span>
+          <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:-0.1s]"></span>
+          <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-bounce"></span>
+        </div>
+
+        <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          {safeStoreName}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // --- Main Application Component ---
 export default function App() {
   const [user, setUser] = useState(null);
@@ -1489,6 +1562,16 @@ export default function App() {
     },
   });
   const [loading, setLoading] = useState(true);
+  const [publicDataReady, setPublicDataReady] = useState({
+    products: false,
+    settings: false,
+  });
+  const [adminDataReady, setAdminDataReady] = useState({
+    orders: false,
+    carts: false,
+    leads: false,
+    productRequests: false,
+  });
   const [toast, setToast] = useState(null);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
 
@@ -1580,6 +1663,11 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
+    setPublicDataReady({
+      products: false,
+      settings: false,
+    });
+
     const productsRef = collection(
       db,
       "artifacts",
@@ -1594,8 +1682,12 @@ export default function App() {
         setProducts(
           snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
         );
+        setPublicDataReady((prev) => ({ ...prev, products: true }));
       },
-      (err) => console.error(err),
+      (err) => {
+        console.error(err);
+        setPublicDataReady((prev) => ({ ...prev, products: true }));
+      },
     );
 
     const couponsRef = collection(
@@ -1664,8 +1756,12 @@ export default function App() {
       (docSnap) => {
         if (docSnap.exists())
           setStoreSettings((prev) => ({ ...prev, ...docSnap.data() }));
+        setPublicDataReady((prev) => ({ ...prev, settings: true }));
       },
-      (err) => console.error(err),
+      (err) => {
+        console.error(err);
+        setPublicDataReady((prev) => ({ ...prev, settings: true }));
+      },
     );
 
     return () => {
@@ -1683,8 +1779,21 @@ export default function App() {
       setAbandonedCarts([]);
       setProductInterestLeads([]);
       setProductNotFoundRequests([]);
+      setAdminDataReady({
+        orders: false,
+        carts: false,
+        leads: false,
+        productRequests: false,
+      });
       return;
     }
+
+    setAdminDataReady({
+      orders: false,
+      carts: false,
+      leads: false,
+      productRequests: false,
+    });
 
     const ordersRef = collection(
       db,
@@ -1707,8 +1816,12 @@ export default function App() {
               (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0),
           ),
         );
+        setAdminDataReady((prev) => ({ ...prev, orders: true }));
       },
-      (err) => console.error(err),
+      (err) => {
+        console.error(err);
+        setAdminDataReady((prev) => ({ ...prev, orders: true }));
+      },
     );
 
     const cartsRef = collection(
@@ -1732,8 +1845,12 @@ export default function App() {
               (b.updatedAt?.toMillis() || 0) - (a.updatedAt?.toMillis() || 0),
           ),
         );
+        setAdminDataReady((prev) => ({ ...prev, carts: true }));
       },
-      (err) => console.error(err),
+      (err) => {
+        console.error(err);
+        setAdminDataReady((prev) => ({ ...prev, carts: true }));
+      },
     );
 
     const leadsRef = collection(
@@ -1759,8 +1876,12 @@ export default function App() {
               (a.lastClickedAt?.toMillis?.() || 0),
           ),
         );
+        setAdminDataReady((prev) => ({ ...prev, leads: true }));
       },
-      (err) => console.error(err),
+      (err) => {
+        console.error(err);
+        setAdminDataReady((prev) => ({ ...prev, leads: true }));
+      },
     );
 
     const productRequestsRef = collection(
@@ -1785,8 +1906,12 @@ export default function App() {
               (a.createdAt?.toMillis?.() || 0),
           ),
         );
+        setAdminDataReady((prev) => ({ ...prev, productRequests: true }));
       },
-      (err) => console.error(err),
+      (err) => {
+        console.error(err);
+        setAdminDataReady((prev) => ({ ...prev, productRequests: true }));
+      },
     );
 
     return () => {
@@ -1852,13 +1977,21 @@ export default function App() {
     showToast("Sessão administrativa encerrada.");
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-      </div>
-    );
-  }
+  const isPublicDataLoading =
+    !publicDataReady.products || !publicDataReady.settings;
+  const isAdminDataLoading =
+    isAdminRoute &&
+    isAdminAuthenticated &&
+    (!adminDataReady.orders ||
+      !adminDataReady.carts ||
+      !adminDataReady.leads ||
+      !adminDataReady.productRequests);
+  const showLoadingOverlay =
+    loading ||
+    (!isAdminRoute && isPublicDataLoading) ||
+    (isAdminRoute &&
+      isAdminAuthenticated &&
+      (isPublicDataLoading || isAdminDataLoading));
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-slate-800">
@@ -1890,6 +2023,14 @@ export default function App() {
           showToast={showToast}
           storeSettings={storeSettings}
           onAdminLogout={handleAdminLogout}
+        />
+      )}
+
+      {showLoadingOverlay && (
+        <AppLoadingOverlay
+          isAdminMode={isAdminRoute}
+          logo={storeSettings.logo}
+          storeName={storeSettings.storeName}
         />
       )}
 
@@ -9866,8 +10007,12 @@ function ProductManager({ products, showToast, storeSettings }) {
   const [productToDelete, setProductToDelete] = useState(null);
   const [productSearch, setProductSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [subcategoryFilter, setSubcategoryFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
+  const [titleSortDirection, setTitleSortDirection] = useState("asc");
   const [currentPage, setCurrentPage] = useState(1);
+  const [draggedImageIndex, setDraggedImageIndex] = useState(null);
+  const [dragOverImageIndex, setDragOverImageIndex] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [selectedSizeTableId, setSelectedSizeTableId] = useState("");
@@ -9913,35 +10058,78 @@ function ProductManager({ products, showToast, storeSettings }) {
     [products],
   );
 
+  const availableSubcategoriesFilter = useMemo(() => {
+    return Array.from(
+      new Set(
+        products
+          .filter((product) => {
+            const category = String(product?.category || "").trim();
+            return categoryFilter === "all" || category === categoryFilter;
+          })
+          .map((product) => String(product?.subcategory || "").trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+  }, [products, categoryFilter]);
+
   const filteredProducts = useMemo(() => {
     const query = normalizeForSearch(productSearch).trim();
 
-    return products.filter((product) => {
-      const category = String(product?.category || "").trim();
-      const name = normalizeForSearch(product?.name);
-      const subcategory = normalizeForSearch(product?.subcategory);
-      const subsubcategory = normalizeForSearch(product?.subsubcategory);
-      const stock = Number(product?.stock || 0);
+    return products
+      .filter((product) => {
+        const category = String(product?.category || "").trim();
+        const subcategoryRaw = String(product?.subcategory || "").trim();
+        const name = normalizeForSearch(product?.name);
+        const subcategory = normalizeForSearch(subcategoryRaw);
+        const subsubcategory = normalizeForSearch(product?.subsubcategory);
+        const stock = Number(product?.stock || 0);
 
-      const matchesQuery =
-        !query ||
-        name.includes(query) ||
-        normalizeForSearch(category).includes(query) ||
-        subcategory.includes(query) ||
-        subsubcategory.includes(query);
+        const matchesQuery =
+          !query ||
+          name.includes(query) ||
+          normalizeForSearch(category).includes(query) ||
+          subcategory.includes(query) ||
+          subsubcategory.includes(query);
 
-      const matchesCategory =
-        categoryFilter === "all" || category === categoryFilter;
+        const matchesCategory =
+          categoryFilter === "all" || category === categoryFilter;
 
-      const matchesStock =
-        stockFilter === "all" ||
-        (stockFilter === "available" && stock > 0) ||
-        (stockFilter === "low" && stock > 0 && stock <= 5) ||
-        (stockFilter === "out" && stock <= 0);
+        const matchesSubcategory =
+          subcategoryFilter === "all" || subcategoryRaw === subcategoryFilter;
 
-      return matchesQuery && matchesCategory && matchesStock;
+        const matchesStock =
+          stockFilter === "all" ||
+          (stockFilter === "available" && stock > 0) ||
+          (stockFilter === "low" && stock > 0 && stock <= 5) ||
+          (stockFilter === "out" && stock <= 0);
+
+        return (
+          matchesQuery && matchesCategory && matchesSubcategory && matchesStock
+        );
+      })
+      .sort((productA, productB) => {
+        const nameA = normalizeForSearch(productA?.name);
+        const nameB = normalizeForSearch(productB?.name);
+        const comparison = nameA.localeCompare(nameB, "pt-BR");
+
+        return titleSortDirection === "desc" ? comparison * -1 : comparison;
+      });
+  }, [
+    products,
+    productSearch,
+    categoryFilter,
+    subcategoryFilter,
+    stockFilter,
+    titleSortDirection,
+  ]);
+
+  useEffect(() => {
+    setSubcategoryFilter((prev) => {
+      if (prev === "all") return prev;
+      if (availableSubcategoriesFilter.includes(prev)) return prev;
+      return "all";
     });
-  }, [products, productSearch, categoryFilter, stockFilter]);
+  }, [availableSubcategoriesFilter]);
 
   const availableSubcategories = useMemo(() => {
     const selected = productCatalog.categories.find(
@@ -10015,7 +10203,7 @@ function ProductManager({ products, showToast, storeSettings }) {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [productSearch, categoryFilter, stockFilter]);
+  }, [productSearch, categoryFilter, subcategoryFilter, stockFilter]);
 
   const toggleSubcategory = (subcategory) => {
     setFormData((prev) => {
@@ -10101,15 +10289,81 @@ function ProductManager({ products, showToast, storeSettings }) {
     showToast("Todas as imagens foram removidas.");
   };
 
-  const moveImage = (index, direction) => {
+  const reorderImages = useCallback((fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+
     setFormData((prev) => {
       const imgs = [...(prev.images || [])];
-      const targetIndex = index + direction;
-      if (targetIndex < 0 || targetIndex >= imgs.length) return prev;
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= imgs.length ||
+        toIndex >= imgs.length
+      ) {
+        return prev;
+      }
 
-      [imgs[index], imgs[targetIndex]] = [imgs[targetIndex], imgs[index]];
+      const [movedImage] = imgs.splice(fromIndex, 1);
+      imgs.splice(toIndex, 0, movedImage);
       return { ...prev, images: imgs };
     });
+  }, []);
+
+  const resetImageDragState = useCallback(() => {
+    setDraggedImageIndex(null);
+    setDragOverImageIndex(null);
+  }, []);
+
+  const commitImageReorder = useCallback(
+    (fromIndex, toIndex) => {
+      if (
+        typeof fromIndex !== "number" ||
+        typeof toIndex !== "number" ||
+        fromIndex === toIndex
+      ) {
+        resetImageDragState();
+        return;
+      }
+
+      reorderImages(fromIndex, toIndex);
+      resetImageDragState();
+    },
+    [reorderImages, resetImageDragState],
+  );
+
+  const handleImageTouchStart = useCallback((event, index) => {
+    if (event.target.closest("button")) return;
+    setDraggedImageIndex(index);
+    setDragOverImageIndex(index);
+  }, []);
+
+  const handleImageTouchMove = useCallback(
+    (event) => {
+      if (draggedImageIndex === null) return;
+
+      const touch = event.touches?.[0];
+      if (!touch) return;
+
+      const target = document
+        .elementFromPoint(touch.clientX, touch.clientY)
+        ?.closest("[data-image-index]");
+
+      if (!target) return;
+
+      const nextIndex = Number(target.getAttribute("data-image-index"));
+      if (Number.isInteger(nextIndex)) {
+        setDragOverImageIndex(nextIndex);
+      }
+    },
+    [draggedImageIndex],
+  );
+
+  const handleImageTouchEnd = useCallback(() => {
+    commitImageReorder(draggedImageIndex, dragOverImageIndex);
+  }, [commitImageReorder, draggedImageIndex, dragOverImageIndex]);
+
+  const toggleTitleSortDirection = () => {
+    setTitleSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
   };
 
   const setPrimaryImage = (index) => {
@@ -11156,7 +11410,7 @@ function ProductManager({ products, showToast, storeSettings }) {
             </div>
             {(formData.images || []).length > 1 && (
               <p className="text-xs text-slate-500">
-                A primeira imagem e a capa do produto. Use as setas para
+                A primeira imagem e a capa do produto. Arraste as fotos para
                 ordenar.
               </p>
             )}
@@ -11164,13 +11418,69 @@ function ProductManager({ products, showToast, storeSettings }) {
               {(formData.images || []).map((imgBase64, idx) => (
                 <div
                   key={idx}
-                  className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-xl overflow-hidden border border-slate-200 shadow-sm group"
+                  data-image-index={idx}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", String(idx));
+                    setDraggedImageIndex(idx);
+                    setDragOverImageIndex(idx);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (dragOverImageIndex !== idx) {
+                      setDragOverImageIndex(idx);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    commitImageReorder(draggedImageIndex, idx);
+                  }}
+                  onDragEnd={resetImageDragState}
+                  onTouchStart={(e) => handleImageTouchStart(e, idx)}
+                  onTouchMove={handleImageTouchMove}
+                  onTouchEnd={handleImageTouchEnd}
+                  onTouchCancel={resetImageDragState}
+                  className={`relative w-24 h-24 sm:w-32 sm:h-32 rounded-xl overflow-hidden border shadow-sm group touch-none cursor-grab active:cursor-grabbing transition-all duration-200 ${
+                    draggedImageIndex === idx
+                      ? "border-indigo-500 ring-2 ring-indigo-200 opacity-75 scale-95 rotate-1 shadow-2xl z-10"
+                      : dragOverImageIndex === idx
+                        ? "border-indigo-400 ring-2 ring-indigo-200 shadow-lg -translate-y-1"
+                        : "border-slate-200"
+                  }`}
                 >
                   <img
                     src={normalizeExternalImageUrl(imgBase64)}
                     alt={`Upload ${idx}`}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover pointer-events-none"
                   />
+
+                  <div className="absolute inset-x-0 top-0 flex items-center justify-between p-1.5 pointer-events-none">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-black/45 px-1.5 py-1 text-white/90 backdrop-blur-sm">
+                      <GripVertical size={12} />
+                      <span className="text-[9px] font-bold uppercase tracking-wider">
+                        Arrastar
+                      </span>
+                    </span>
+                  </div>
+
+                  {draggedImageIndex === idx && (
+                    <div className="absolute inset-0 bg-indigo-950/20 backdrop-blur-[1px] pointer-events-none flex items-center justify-center">
+                      <span className="rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-indigo-700 shadow-sm">
+                        Movendo foto
+                      </span>
+                    </div>
+                  )}
+
+                  {draggedImageIndex !== null &&
+                    dragOverImageIndex === idx &&
+                    draggedImageIndex !== idx && (
+                      <div className="absolute inset-0 border-2 border-dashed border-indigo-500 bg-indigo-50/70 pointer-events-none flex items-center justify-center">
+                        <span className="rounded-full bg-indigo-600 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white shadow-sm">
+                          Solte aqui
+                        </span>
+                      </div>
+                    )}
 
                   <div className="absolute bottom-1 left-1 flex items-center gap-1">
                     <span className="bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">
@@ -11183,25 +11493,7 @@ function ProductManager({ products, showToast, storeSettings }) {
                     )}
                   </div>
 
-                  <div className="absolute top-1 left-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      type="button"
-                      onClick={() => moveImage(idx, -1)}
-                      disabled={idx === 0}
-                      className="bg-white/90 text-slate-700 disabled:text-slate-300 p-1 rounded-md shadow"
-                      title="Mover para a esquerda"
-                    >
-                      <ChevronLeft size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveImage(idx, 1)}
-                      disabled={idx === (formData.images || []).length - 1}
-                      className="bg-white/90 text-slate-700 disabled:text-slate-300 p-1 rounded-md shadow"
-                      title="Mover para a direita"
-                    >
-                      <ChevronRight size={14} />
-                    </button>
+                  <div className="absolute top-1 left-1 right-8 flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                     <button
                       type="button"
                       onClick={() => setPrimaryImage(idx)}
@@ -11216,7 +11508,7 @@ function ProductManager({ products, showToast, storeSettings }) {
                   <button
                     type="button"
                     onClick={() => removeImage(idx)}
-                    className="absolute top-1 right-1 bg-rose-500 text-white p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                    className="absolute top-1 right-1 bg-rose-500 text-white p-1 rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-md"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -11700,13 +11992,29 @@ function ProductManager({ products, showToast, storeSettings }) {
           </button>
           <select
             value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            onChange={(e) => {
+              setCategoryFilter(e.target.value);
+              setSubcategoryFilter("all");
+            }}
             className="p-3 border border-slate-200 rounded-xl bg-white min-w-[190px]"
           >
             <option value="all">Todas as categorias</option>
             {availableCategoriesFilter.map((categoryName) => (
               <option key={categoryName} value={categoryName}>
                 {categoryName}
+              </option>
+            ))}
+          </select>
+          <select
+            value={subcategoryFilter}
+            onChange={(e) => setSubcategoryFilter(e.target.value)}
+            className="p-3 border border-slate-200 rounded-xl bg-white min-w-[190px]"
+            disabled={availableSubcategoriesFilter.length === 0}
+          >
+            <option value="all">Todas as subcategorias</option>
+            {availableSubcategoriesFilter.map((subcategoryName) => (
+              <option key={subcategoryName} value={subcategoryName}>
+                {subcategoryName}
               </option>
             ))}
           </select>
@@ -11721,6 +12029,82 @@ function ProductManager({ products, showToast, storeSettings }) {
             <option value="out">Sem estoque</option>
           </select>
         </div>
+        {(availableCategoriesFilter.length > 0 ||
+          availableSubcategoriesFilter.length > 0) && (
+          <div className="px-4 md:px-5 py-3 border-b border-slate-100 bg-white space-y-3">
+            {availableCategoriesFilter.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+                  Categorias:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryFilter("all");
+                    setSubcategoryFilter("all");
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${
+                    categoryFilter === "all"
+                      ? "bg-indigo-600 text-white border-indigo-600"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300"
+                  }`}
+                >
+                  Todas
+                </button>
+                {availableCategoriesFilter.map((categoryName) => (
+                  <button
+                    key={categoryName}
+                    type="button"
+                    onClick={() => {
+                      setCategoryFilter(categoryName);
+                      setSubcategoryFilter("all");
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${
+                      categoryFilter === categoryName
+                        ? "bg-indigo-600 text-white border-indigo-600"
+                        : "bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300"
+                    }`}
+                  >
+                    {categoryName}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {availableSubcategoriesFilter.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-500">
+                  Subcategorias:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSubcategoryFilter("all")}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${
+                    subcategoryFilter === "all"
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                  }`}
+                >
+                  Todas
+                </button>
+                {availableSubcategoriesFilter.map((subcategoryName) => (
+                  <button
+                    key={subcategoryName}
+                    type="button"
+                    onClick={() => setSubcategoryFilter(subcategoryName)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${
+                      subcategoryFilter === subcategoryName
+                        ? "bg-slate-900 text-white border-slate-900"
+                        : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    {subcategoryName}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <table className="w-full text-left min-w-[600px]">
           <thead className="bg-slate-50 text-slate-500">
             <tr className="border-b">
@@ -11732,7 +12116,20 @@ function ProductManager({ products, showToast, storeSettings }) {
                   className="rounded border-slate-300 cursor-pointer"
                 />
               </th>
-              <th className="p-4">Produto</th>
+              <th className="p-4">
+                <button
+                  type="button"
+                  onClick={toggleTitleSortDirection}
+                  className="inline-flex items-center gap-2 font-bold text-slate-600 hover:text-indigo-600 transition-colors"
+                  title="Ordenar por nome do produto"
+                >
+                  Produto
+                  <ArrowUpDown size={14} className="text-slate-400" />
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    {titleSortDirection === "asc" ? "A-Z" : "Z-A"}
+                  </span>
+                </button>
+              </th>
               <th className="p-4">Categoria</th>
               <th className="p-4">Subcategoria</th>
               <th className="p-4">Preço</th>
@@ -12047,6 +12444,7 @@ function ProductManager({ products, showToast, storeSettings }) {
 }
 
 function PointOfSale({ products, showToast, storeSettings }) {
+  const cartPanelRef = useRef(null);
   const [currentSale, setCurrentSale] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Dinheiro");
@@ -12152,6 +12550,13 @@ function PointOfSale({ products, showToast, storeSettings }) {
   const availableProducts = products.filter((p) =>
     normalizeForSearch(p.name).includes(normalizeForSearch(searchTerm)),
   );
+
+  const scrollToCartPanel = () => {
+    cartPanelRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
   const finalizeSale = async () => {
     if (currentSale.length === 0) return;
@@ -12262,7 +12667,7 @@ function PointOfSale({ products, showToast, storeSettings }) {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-140px)] print:block print:h-auto print:gap-0">
+    <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 h-auto lg:h-[calc(100vh-140px)] print:block print:h-auto print:gap-0 pb-24 lg:pb-0">
       {/* Modal / Overlay de Recibo (Venda Concluída) */}
       {lastReceipt && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm print:absolute print:inset-0 print:bg-transparent print:backdrop-blur-none print:items-start print:justify-start print:p-0">
@@ -12455,9 +12860,28 @@ function PointOfSale({ products, showToast, storeSettings }) {
         </div>
       )}
 
+      <div className="lg:hidden sticky top-2 z-20 -mb-1">
+        <button
+          type="button"
+          onClick={scrollToCartPanel}
+          className="w-full rounded-2xl bg-slate-900 text-white px-4 py-3 shadow-lg shadow-slate-900/15 flex items-center justify-between gap-3"
+        >
+          <span className="flex items-center gap-2 text-sm font-bold">
+            <ShoppingCart size={18} className="text-emerald-300" />
+            Caixa PDV
+          </span>
+          <span className="text-xs font-semibold text-slate-300">
+            {currentSale.length} item(ns)
+          </span>
+          <span className="text-base font-black whitespace-nowrap">
+            R$ {totalSale.toFixed(2)}
+          </span>
+        </button>
+      </div>
+
       {/* Grid de Produtos */}
-      <div className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-slate-200/60 overflow-hidden print:hidden">
-        <div className="p-4 border-b border-slate-100 relative bg-slate-50/50">
+      <div className="flex-1 flex flex-col bg-white rounded-3xl shadow-sm border border-slate-200/60 overflow-hidden print:hidden min-h-[62vh] lg:min-h-0">
+        <div className="p-4 border-b border-slate-100 relative bg-slate-50/95 sticky top-0 z-10 backdrop-blur-sm">
           <Search
             className="absolute left-7 top-1/2 -translate-y-1/2 text-indigo-400"
             size={20}
@@ -12470,13 +12894,13 @@ function PointOfSale({ products, showToast, storeSettings }) {
             className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow"
           />
         </div>
-        <div className="flex-1 p-4 md:p-6 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 content-start">
+        <div className="flex-1 p-3 sm:p-4 md:p-6 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4 content-start">
           {availableProducts.map((p) => (
             <button
               key={p.id}
               onClick={() => addToSale(p)}
               disabled={Number(p.stock) <= 0}
-              className="bg-white p-4 rounded-2xl border border-slate-100 text-left hover:border-indigo-400 hover:shadow-lg transition-all disabled:opacity-50 flex flex-col h-full group"
+              className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-100 text-left hover:border-indigo-400 hover:shadow-lg transition-all disabled:opacity-50 flex flex-col h-full group"
             >
               <div className="w-full aspect-[4/3] bg-slate-50 rounded-xl mb-3 overflow-hidden shrink-0">
                 {p.images?.[0] || p.image ? (
@@ -12510,7 +12934,10 @@ function PointOfSale({ products, showToast, storeSettings }) {
       </div>
 
       {/* Barra Lateral do Caixa */}
-      <div className="w-full lg:w-96 bg-white rounded-3xl shadow-sm border border-slate-200/60 flex flex-col shrink-0 relative print:hidden">
+      <div
+        ref={cartPanelRef}
+        className="w-full lg:w-96 bg-white rounded-3xl shadow-sm border border-slate-200/60 flex flex-col shrink-0 relative print:hidden min-h-[420px] lg:min-h-0"
+      >
         <div className="p-5 bg-slate-900 text-white rounded-t-3xl font-bold flex justify-between items-center">
           <span className="flex items-center gap-2">
             <Monitor size={20} className="text-indigo-400" /> Caixa PDV
