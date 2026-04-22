@@ -922,7 +922,32 @@ const getDescriptionPreviewText = (value, maxLength = 120) => {
 
 const isInlineDataImage = (value) => /^data:image\//i.test(String(value || ""));
 
-const recompressDataUrlImage = (dataUrl, maxWidth, quality) =>
+const getDataUrlSizeBytes = (dataUrl) => {
+  if (!isInlineDataImage(dataUrl)) return 0;
+
+  const base64 = String(dataUrl).split(",")[1] || "";
+  if (!base64) return 0;
+
+  const paddingMatch = base64.match(/=+$/);
+  const padding = paddingMatch ? paddingMatch[0].length : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+};
+
+const fileToDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => resolve(String(event?.target?.result || ""));
+    reader.onerror = () => reject(new Error("Falha ao ler arquivo de imagem."));
+    reader.readAsDataURL(file);
+  });
+
+const recompressDataUrlImage = (
+  dataUrl,
+  maxWidth,
+  quality,
+  maxBytes = 0,
+  minQuality = 0.45,
+) =>
   new Promise((resolve) => {
     if (!isInlineDataImage(dataUrl)) {
       resolve(dataUrl);
@@ -950,7 +975,18 @@ const recompressDataUrlImage = (dataUrl, maxWidth, quality) =>
       }
 
       ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-      resolve(canvas.toDataURL("image/jpeg", quality));
+
+      let currentQuality = Math.min(0.95, Math.max(minQuality, quality));
+      let compressed = canvas.toDataURL("image/webp", currentQuality);
+
+      while (maxBytes > 0 && getDataUrlSizeBytes(compressed) > maxBytes) {
+        const nextQuality = Number((currentQuality - 0.08).toFixed(2));
+        if (nextQuality < minQuality) break;
+        currentQuality = nextQuality;
+        compressed = canvas.toDataURL("image/webp", currentQuality);
+      }
+
+      resolve(compressed);
     };
 
     img.onerror = () => resolve(dataUrl);
@@ -1433,7 +1469,7 @@ function ConfirmModal({
 }
 
 function AppLoadingOverlay({ isAdminMode, logo, storeName }) {
-  const STATIC_LOADING_LOGO_PATH = "/logo-loading.png";
+  const STATIC_LOADING_LOGO_PATH = "/logo-loading.webp";
   const safeStoreName = String(storeName || "Aucélia Multimarcas").trim();
   const title = isAdminMode
     ? "Carregando dados do painel"
@@ -10241,28 +10277,13 @@ function ProductManager({ products, showToast, storeSettings }) {
 
     const newImages = [];
     for (let file of files) {
-      const base64 = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement("canvas");
-            const MAX_WIDTH = 600;
-            let width = img.width,
-              height = img.height;
-            if (width > MAX_WIDTH) {
-              height = height * (MAX_WIDTH / width);
-              width = MAX_WIDTH;
-            }
-            canvas.width = width;
-            canvas.height = height;
-            canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL("image/jpeg", 0.8));
-          };
-          img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
+      const originalDataUrl = await fileToDataUrl(file);
+      const base64 = await recompressDataUrlImage(
+        originalDataUrl,
+        600,
+        0.82,
+        260 * 1024,
+      );
       newImages.push(base64);
     }
 
@@ -10270,6 +10291,8 @@ function ProductManager({ products, showToast, storeSettings }) {
       ...prev,
       images: [...(prev.images || []), ...newImages],
     }));
+
+    e.target.value = "";
   };
 
   const removeImage = (index) => {
@@ -16671,46 +16694,29 @@ function AdminSettings({ showToast, storeSettings }) {
   }, [buildSettingsPayload, config, showToast, storeSettings]);
 
   // Redimensionador de Imagens (evita limite de 1MB do Firestore)
-  const processImage = (file, maxWidth, quality = 0.8) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          let width = img.width,
-            height = img.height;
-          if (width > maxWidth) {
-            height = height * (maxWidth / width);
-            width = maxWidth;
-          }
-          canvas.width = width;
-          canvas.height = height;
-          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL("image/jpeg", quality));
-        };
-        img.src = event.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
+  const processImage = async (file, maxWidth, quality = 0.8, maxBytes = 0) => {
+    const originalDataUrl = await fileToDataUrl(file);
+    return recompressDataUrlImage(originalDataUrl, maxWidth, quality, maxBytes);
   };
 
   const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setIsUploading(true);
-    const base64 = await processImage(file, 400);
+    const base64 = await processImage(file, 400, 0.82, 140 * 1024);
     setConfig({ ...config, logo: base64 });
     setIsUploading(false);
+    e.target.value = "";
   };
 
   const handleBannerUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setIsUploading(true);
-    const base64 = await processImage(file, 1200, 0.7); // Banners mais comprimidos
+    const base64 = await processImage(file, 1200, 0.75, 360 * 1024);
     setConfig({ ...config, banners: [...(config.banners || []), base64] });
     setIsUploading(false);
+    e.target.value = "";
   };
 
   const removeBanner = (index) => {
