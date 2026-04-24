@@ -75,6 +75,7 @@ import {
   collection,
   onSnapshot,
   query,
+  limit,
   where,
   addDoc,
   deleteDoc,
@@ -154,6 +155,42 @@ const formatOrderDisplayId = (order) => {
 
 const PAYMENT_PENDING_STORAGE_KEY = "jn_pending_payment_v1";
 const ACCOUNT_AUTO_OPEN_KEY = "jn_open_account_after_reload_v1";
+const PRODUCTS_CACHE_KEY = "jn_products_cache_v1";
+const STORE_SETTINGS_CACHE_KEY = "jn_store_settings_cache_v1";
+
+const readCachedData = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed.data ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedData = (key, data) => {
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        updatedAt: Date.now(),
+        data,
+      }),
+    );
+  } catch {
+    // no-op: storage indisponivel no contexto atual
+  }
+};
+
+const buildSettingsPreview = (settings) => {
+  const source = settings && typeof settings === "object" ? settings : {};
+  return {
+    ...source,
+    banners: Array.isArray(source.banners) ? source.banners.slice(0, 1) : [],
+  };
+};
 
 const savePendingPaymentContext = (payload) => {
   try {
@@ -1635,6 +1672,25 @@ export default function App() {
 
   const isAdminRoute = currentRoute === "admin";
 
+  useEffect(() => {
+    const cachedProducts = readCachedData(PRODUCTS_CACHE_KEY);
+    if (Array.isArray(cachedProducts)) {
+      setProducts(cachedProducts);
+      setPublicDataReady((prev) => ({ ...prev, products: true }));
+    }
+
+    const cachedSettings = readCachedData(STORE_SETTINGS_CACHE_KEY);
+    if (cachedSettings && typeof cachedSettings === "object") {
+      const previewSettings = buildSettingsPreview(cachedSettings);
+      setStoreSettings((prev) => ({ ...prev, ...previewSettings }));
+      setPublicDataReady((prev) => ({ ...prev, settings: true }));
+
+      window.setTimeout(() => {
+        setStoreSettings((prev) => ({ ...prev, ...cachedSettings }));
+      }, 0);
+    }
+  }, []);
+
   // --- Atualização Dinâmica do Título e Favicon ---
   useEffect(() => {
     const storeName = storeSettings.storeName || "NovaLoja";
@@ -1712,19 +1768,50 @@ export default function App() {
       "data",
       "products",
     );
-    const unsubProducts = onSnapshot(
-      productsRef,
-      (snapshot) => {
-        setProducts(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+    let isDisposed = false;
+    let unsubProducts = () => {};
+
+    const startProductsRealtimeSync = () => {
+      unsubProducts = onSnapshot(
+        productsRef,
+        (snapshot) => {
+          const nextProducts = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+          setProducts(nextProducts);
+          writeCachedData(PRODUCTS_CACHE_KEY, nextProducts);
+        },
+        (err) => {
+          console.error(err);
+        },
+      );
+    };
+
+    (async () => {
+      try {
+        const initialProductsSnapshot = await getDocs(
+          query(productsRef, limit(20)),
         );
-        setPublicDataReady((prev) => ({ ...prev, products: true }));
-      },
-      (err) => {
+        if (isDisposed) return;
+
+        const initialProducts = initialProductsSnapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        }));
+
+        if (initialProducts.length > 0) {
+          setProducts(initialProducts);
+          writeCachedData(PRODUCTS_CACHE_KEY, initialProducts);
+        }
+      } catch (err) {
         console.error(err);
+      } finally {
+        if (isDisposed) return;
         setPublicDataReady((prev) => ({ ...prev, products: true }));
-      },
-    );
+        startProductsRealtimeSync();
+      }
+    })();
 
     const couponsRef = collection(
       db,
@@ -1790,8 +1877,16 @@ export default function App() {
     const unsubSettings = onSnapshot(
       settingsRef,
       (docSnap) => {
-        if (docSnap.exists())
-          setStoreSettings((prev) => ({ ...prev, ...docSnap.data() }));
+        if (docSnap.exists()) {
+          const nextSettings = docSnap.data();
+          const previewSettings = buildSettingsPreview(nextSettings);
+          setStoreSettings((prev) => ({ ...prev, ...previewSettings }));
+          writeCachedData(STORE_SETTINGS_CACHE_KEY, nextSettings);
+
+          window.setTimeout(() => {
+            setStoreSettings((prev) => ({ ...prev, ...nextSettings }));
+          }, 0);
+        }
         setPublicDataReady((prev) => ({ ...prev, settings: true }));
       },
       (err) => {
@@ -1801,6 +1896,7 @@ export default function App() {
     );
 
     return () => {
+      isDisposed = true;
       unsubProducts();
       unsubCoupons();
       unsubCustomerFeedbacks();
@@ -7359,7 +7455,8 @@ function BannerCarousel({ banners }) {
             <img
               src={banner}
               alt={`Banner ${index + 1}`}
-              loading="eager"
+              loading={index === currentIndex ? "eager" : "lazy"}
+              fetchPriority={index === currentIndex ? "high" : "low"}
               decoding="async"
               draggable={false}
               className="block w-full h-full object-cover select-none"
